@@ -20,12 +20,12 @@
   button{width:100%;margin-top:22px;padding:14px;border:none;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:600}
   button:disabled{background:#9bd6b3}
   .msg{margin-top:14px;text-align:center;font-size:14px}
-  #dbg{background:#ffe;padding:6px 10px;font-size:12px;word-break:break-all}
   .page{display:none}
+  .loading{max-width:520px;margin:0 auto;padding:40px 16px;text-align:center;color:#889}
 </style>
 </head>
 <body>
-<div id="dbg">起動中…</div>
+<div class="loading" id="loading">読み込み中…</div>
 
 <!-- ===== カレンダー登録 ===== -->
 <div class="wrap page" id="page-calendar">
@@ -65,18 +65,21 @@
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script>
-  /* ===== ここだけ自分の値に書き替える ===== */
-  var LIFF_ID  = "2010573789-iYqvGWEV";  // 本番用ミニアプリのLIFF ID
-  var GAS_URL  = "https://script.google.com/macros/s/AKfycbx7UPKBWDI_Vwgt7LValPYsYNHL7v9ER67kAmYWq3-y7YqqJ9wtfeq9WvMTEsVIQksx/exec"; // GASウェブアプリの /exec
-  /* ======================================= */
+  /* ===== 設定 ===== */
+  var LIFF_ID = "2010573789-iYqvGWEV";
+  var GAS_URL = "https://script.google.com/macros/s/AKfycbx7UPKBWDI_Vwgt7LValPYsYNHL7v9ER67kAmYWq3-y7YqqJ9wtfeq9WvMTEsVIQksx/exec";
+  /* =============== */
 
   var MEMBERS = ["長利","hd","新井","Shin"];
   var TAGS = ["ライブ","打ち合わせ","挨拶","メディア","仕事","その他"];
   var profile = { userId:"", displayName:"" };
   var GID = "";
 
-  function dbg(t){ var d=document.getElementById('dbg'); if(d) d.textContent=t; }
-  function showPage(id){ var el=document.getElementById('page-'+id); if(el) el.style.display='block'; }
+  function showPage(id){
+    document.getElementById('loading').style.display = 'none';
+    var el = document.getElementById('page-'+id); if(el) el.style.display='block';
+  }
+  function fail(t){ document.getElementById('loading').textContent = t; }
 
   function getParam(name){
     var u = new URL(location.href);
@@ -109,15 +112,13 @@
     if (p) profile = p;
     GID = getParam('gid');
     var page = getPage();
-    dbg('✅ 準備OK / page=' + page + ' / name=' + profile.displayName + ' / gid=' + GID);
     if (page === 'calendar')      showPage('calendar');
     else if (page === 'request')  showPage('request');
     else                          showPage('notready');
   }).catch(function(e){
-    dbg('エラー: ' + (e && e.message ? e.message : e));
+    fail('読み込みに失敗しました。もう一度開いてください。');
   });
 
-  // 保存の共通処理
   function post(payload, btn, msgId, okText){
     btn.disabled = true; setMsg(msgId, '送信中…');
     fetch(GAS_URL, { method:'POST', body: JSON.stringify(payload) })
@@ -131,7 +132,6 @@
   function setMsg(id, t){ document.getElementById(id).textContent = t; }
   function closeIt(){ if (liff.isInClient()) liff.closeWindow(); }
 
-  // カレンダー送信
   document.getElementById('cal_send').onclick = function(){
     var title=document.getElementById('cal_title').value.trim();
     var start=document.getElementById('cal_start').value, end=document.getElementById('cal_end').value;
@@ -144,7 +144,6 @@
       this, 'cal_msg', '登録しました。画面を閉じます。');
   };
 
-  // 機能要望送信
   document.getElementById('req_send').onclick = function(){
     var text=document.getElementById('req_text').value.trim();
     if(!text){ setMsg('req_msg','内容を入力してください。'); return; }
