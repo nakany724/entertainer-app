@@ -8,50 +8,57 @@
   body{font-family:-apple-system,"Hiragino Kaku Gothic ProN",sans-serif;margin:0;background:#f4f6f5;color:#1f2933}
   .wrap{max-width:520px;margin:0 auto;padding:16px}
   h1{font-size:18px;margin:8px 0 16px}
+  p.lead{font-size:13px;color:#667;margin:0 0 12px}
   label{display:block;font-size:13px;font-weight:600;margin:14px 0 4px}
   .req{color:#d64545;font-size:11px;margin-left:4px}
   input[type=text],input[type=datetime-local],textarea,select{
     width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd2d9;border-radius:8px;font-size:15px;background:#fff}
   textarea{min-height:70px}
+  #req_text{min-height:160px}
   .chips label{display:inline-flex;align-items:center;font-weight:400;margin:4px 8px 4px 0;background:#fff;border:1px solid #cbd2d9;border-radius:999px;padding:6px 12px}
   .chips input{margin-right:6px}
   button{width:100%;margin-top:22px;padding:14px;border:none;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:600}
   button:disabled{background:#9bd6b3}
   .msg{margin-top:14px;text-align:center;font-size:14px}
   #dbg{background:#ffe;padding:6px 10px;font-size:12px;word-break:break-all}
+  .page{display:none}
 </style>
 </head>
 <body>
 <div id="dbg">起動中…</div>
-<div class="wrap" id="app" style="display:none">
+
+<!-- ===== カレンダー登録 ===== -->
+<div class="wrap page" id="page-calendar">
   <h1>カレンダー登録</h1>
-
   <label>タイトル<span class="req">必須</span></label>
-  <input type="text" id="title">
-
+  <input type="text" id="cal_title">
   <label>場所</label>
-  <input type="text" id="place">
-
+  <input type="text" id="cal_place">
   <label>詳細</label>
-  <textarea id="detail"></textarea>
-
+  <textarea id="cal_detail"></textarea>
   <label>開始日時<span class="req">必須・15分単位</span></label>
-  <input type="datetime-local" id="start" step="900">
-
+  <input type="datetime-local" id="cal_start" step="900">
   <label>終了日時<span class="req">必須・15分単位</span></label>
-  <input type="datetime-local" id="end" step="900">
-
+  <input type="datetime-local" id="cal_end" step="900">
   <label>タグ</label>
-  <select id="tag"></select>
-
+  <select id="cal_tag"></select>
   <label>参加メンバー（複数選択可）</label>
-  <div class="chips" id="members"></div>
-
-  <button id="send">登録する</button>
-  <div class="msg" id="msg"></div>
+  <div class="chips" id="cal_members"></div>
+  <button id="cal_send">登録する</button>
+  <div class="msg" id="cal_msg"></div>
 </div>
 
-<div class="wrap" id="notready" style="display:none">
+<!-- ===== 機能要望 ===== -->
+<div class="wrap page" id="page-request">
+  <h1>機能要望</h1>
+  <p class="lead">「こんな機能がほしい」「ここを改善してほしい」など、自由にお書きください。</p>
+  <textarea id="req_text" placeholder="ご要望をどうぞ"></textarea>
+  <button id="req_send">送信する</button>
+  <div class="msg" id="req_msg"></div>
+</div>
+
+<!-- ===== 準備中 ===== -->
+<div class="wrap page" id="page-notready">
   <h1>準備中</h1>
   <p>この機能はまだ準備中です。</p>
 </div>
@@ -69,28 +76,27 @@
   var GID = "";
 
   function dbg(t){ var d=document.getElementById('dbg'); if(d) d.textContent=t; }
-  function show(t){ document.getElementById('msg').textContent = t; }
+  function showPage(id){ var el=document.getElementById('page-'+id); if(el) el.style.display='block'; }
 
-  // liff.state / クエリから値を取り出す
   function getParam(name){
     var u = new URL(location.href);
     var v = u.searchParams.get(name);
     if (v) return v;
     var st = u.searchParams.get('liff.state');
-    if (st){ var q = (decodeURIComponent(st).split('?')[1] || ''); return new URLSearchParams(q).get(name) || ''; }
+    if (st){ var q=(decodeURIComponent(st).split('?')[1]||''); return new URLSearchParams(q).get(name)||''; }
     return '';
   }
   function getPage(){
     var u = new URL(location.href);
     var st = u.searchParams.get('liff.state');
-    if (st){ var path = decodeURIComponent(st).split('?')[0].replace(/^\/+/, ''); if(path) return path.toLowerCase(); }
+    if (st){ var path=decodeURIComponent(st).split('?')[0].replace(/^\/+/, ''); if(path) return path.toLowerCase(); }
     return (u.searchParams.get('page') || 'calendar').toLowerCase();
   }
 
-  // 画面の準備
-  var tagSel = document.getElementById('tag');
+  // カレンダー画面の部品を用意
+  var tagSel = document.getElementById('cal_tag');
   tagSel.innerHTML = '<option value="">（未設定）</option>' + TAGS.map(function(t){return '<option>'+t+'</option>';}).join('');
-  document.getElementById('members').innerHTML = MEMBERS.map(function(m){
+  document.getElementById('cal_members').innerHTML = MEMBERS.map(function(m){
     return '<label><input type="checkbox" value="'+m+'">'+m+'</label>';
   }).join('');
 
@@ -103,43 +109,48 @@
     if (p) profile = p;
     GID = getParam('gid');
     var page = getPage();
-    if (page !== 'calendar') {
-      document.getElementById('notready').style.display = 'block';
-      dbg('page=' + page + '（カレンダー以外は準備中）');
-      return;
-    }
-    document.getElementById('app').style.display = 'block';
-    dbg('✅ 準備OK / name=' + profile.displayName + ' / gid=' + GID);
+    dbg('✅ 準備OK / page=' + page + ' / name=' + profile.displayName + ' / gid=' + GID);
+    if (page === 'calendar')      showPage('calendar');
+    else if (page === 'request')  showPage('request');
+    else                          showPage('notready');
   }).catch(function(e){
     dbg('エラー: ' + (e && e.message ? e.message : e));
   });
 
-  document.getElementById('send').onclick = function(){
-    var title = document.getElementById('title').value.trim();
-    var start = document.getElementById('start').value;
-    var end   = document.getElementById('end').value;
-    if(!title || !start || !end){ show('タイトル・開始・終了は必須です。'); return; }
-    if(end < start){ show('終了は開始より後にしてください。'); return; }
-    var members = [].slice.call(document.querySelectorAll('#members input:checked')).map(function(c){return c.value;});
-    this.disabled = true; show('登録中…');
-
-    var payload = {
-      action: 'submitCalendar',
-      title: title, place: document.getElementById('place').value.trim(),
-      detail: document.getElementById('detail').value.trim(),
-      start: start, end: end, tag: tagSel.value, members: members,
-      gid: GID, userName: profile.displayName, userId: profile.userId
-    };
-
+  // 保存の共通処理
+  function post(payload, btn, msgId, okText){
+    btn.disabled = true; setMsg(msgId, '送信中…');
     fetch(GAS_URL, { method:'POST', body: JSON.stringify(payload) })
       .then(function(r){ return r.json(); })
       .then(function(res){
-        if (res && res.ok) { show('登録しました。画面を閉じます。'); setTimeout(closeIt, 1200); }
-        else { show('登録できませんでした: ' + ((res && res.error) || '不明')); document.getElementById('send').disabled = false; }
+        if (res && res.ok) { setMsg(msgId, okText); setTimeout(closeIt, 1200); }
+        else { setMsg(msgId, '失敗: ' + ((res && res.error) || '不明')); btn.disabled = false; }
       })
-      .catch(function(err){ show('通信エラー: ' + err.message); document.getElementById('send').disabled = false; });
-  };
+      .catch(function(err){ setMsg(msgId, '通信エラー: ' + err.message); btn.disabled = false; });
+  }
+  function setMsg(id, t){ document.getElementById(id).textContent = t; }
   function closeIt(){ if (liff.isInClient()) liff.closeWindow(); }
+
+  // カレンダー送信
+  document.getElementById('cal_send').onclick = function(){
+    var title=document.getElementById('cal_title').value.trim();
+    var start=document.getElementById('cal_start').value, end=document.getElementById('cal_end').value;
+    if(!title||!start||!end){ setMsg('cal_msg','タイトル・開始・終了は必須です。'); return; }
+    if(end<start){ setMsg('cal_msg','終了は開始より後にしてください。'); return; }
+    var members=[].slice.call(document.querySelectorAll('#cal_members input:checked')).map(function(c){return c.value;});
+    post({ action:'submitCalendar', title:title, place:document.getElementById('cal_place').value.trim(),
+      detail:document.getElementById('cal_detail').value.trim(), start:start, end:end, tag:tagSel.value,
+      members:members, gid:GID, userName:profile.displayName, userId:profile.userId },
+      this, 'cal_msg', '登録しました。画面を閉じます。');
+  };
+
+  // 機能要望送信
+  document.getElementById('req_send').onclick = function(){
+    var text=document.getElementById('req_text').value.trim();
+    if(!text){ setMsg('req_msg','内容を入力してください。'); return; }
+    post({ action:'submitRequest', text:text, gid:GID, userName:profile.displayName, userId:profile.userId },
+      this, 'req_msg', '送信しました。ありがとうございます。');
+  };
 </script>
 </body>
 </html>
