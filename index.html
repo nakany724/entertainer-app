@@ -59,10 +59,10 @@
   <input type="text" id="exp_payee">
   <label>内容</label>
   <input type="text" id="exp_content">
-  <label>支払いメンバー（複数選択可）</label>
+  <label>支払いメンバー（1人）</label>
   <div class="chips" id="exp_members"></div>
   <label>領収書の画像</label>
-  <input type="file" id="exp_file" accept="image/*" capture="environment">
+  <input type="file" id="exp_file" accept="image/*">
   <img id="exp_preview">
   <button id="exp_send">申請する</button>
   <div class="msg" id="exp_msg"></div>
@@ -94,7 +94,7 @@
   var TAGS = ["ライブ","打ち合わせ","挨拶","メディア","仕事","その他"];
   var profile = { userId:"", displayName:"" };
   var GID = "";
-  var expImage = null; // 縮小後のbase64
+  var expImage = null;
 
   function showPage(id){
     document.getElementById('loading').style.display = 'none';
@@ -120,9 +120,12 @@
   // 部品の用意
   var tagSel = document.getElementById('cal_tag');
   tagSel.innerHTML = '<option value="">（未設定）</option>' + TAGS.map(function(t){return '<option>'+t+'</option>';}).join('');
-  var chipsHtml = MEMBERS.map(function(m){ return '<label><input type="checkbox" value="'+m+'">'+m+'</label>'; }).join('');
-  document.getElementById('cal_members').innerHTML = chipsHtml;
-  document.getElementById('exp_members').innerHTML = chipsHtml;
+  // カレンダーの参加メンバー：複数選択（チェックボックス）
+  document.getElementById('cal_members').innerHTML =
+    MEMBERS.map(function(m){ return '<label><input type="checkbox" value="'+m+'">'+m+'</label>'; }).join('');
+  // 経費の支払いメンバー：1人だけ選択（ラジオボタン）
+  document.getElementById('exp_members').innerHTML =
+    MEMBERS.map(function(m){ return '<label><input type="radio" name="exp_member" value="'+m+'">'+m+'</label>'; }).join('');
 
   liff.init({ liffId: LIFF_ID }).then(function(){
     if (!liff.isLoggedIn()) { liff.login(); return; }
@@ -190,7 +193,8 @@
   document.getElementById('exp_send').onclick = function(){
     var amount=document.getElementById('exp_amount').value;
     if(!amount){ setMsg('exp_msg','金額は必須です。'); return; }
-    var members=[].slice.call(document.querySelectorAll('#exp_members input:checked')).map(function(c){return c.value;});
+    var picked=document.querySelector('#exp_members input:checked');
+    var members = picked ? [picked.value] : [];
     post({ action:'submitExpense', amount:amount, payDate:document.getElementById('exp_payDate').value,
       payee:document.getElementById('exp_payee').value.trim(), content:document.getElementById('exp_content').value.trim(),
       members:members, gid:GID, userName:profile.displayName, userId:profile.userId,
