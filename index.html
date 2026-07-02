@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>エンターテイナー製作委員会アプリ2</title>
+<style>
+  body{font-family:-apple-system,"Hiragino Kaku Gothic ProN",sans-serif;margin:0;background:#f4f6f5;color:#1f2933}
+  .wrap{max-width:520px;margin:0 auto;padding:16px}
+  h1{font-size:18px;margin:8px 0 16px}
+  label{display:block;font-size:13px;font-weight:600;margin:14px 0 4px}
+  .req{color:#d64545;font-size:11px;margin-left:4px}
+  input[type=text],input[type=datetime-local],textarea,select{
+    width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd2d9;border-radius:8px;font-size:15px;background:#fff}
+  textarea{min-height:70px}
+  .chips label{display:inline-flex;align-items:center;font-weight:400;margin:4px 8px 4px 0;background:#fff;border:1px solid #cbd2d9;border-radius:999px;padding:6px 12px}
+  .chips input{margin-right:6px}
+  button{width:100%;margin-top:22px;padding:14px;border:none;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:600}
+  button:disabled{background:#9bd6b3}
+  .msg{margin-top:14px;text-align:center;font-size:14px}
+  #dbg{background:#ffe;padding:6px 10px;font-size:12px;word-break:break-all}
+</style>
+</head>
+<body>
+<div id="dbg">起動中…</div>
+<div class="wrap" id="app" style="display:none">
+  <h1>カレンダー登録</h1>
+
+  <label>タイトル<span class="req">必須</span></label>
+  <input type="text" id="title">
+
+  <label>場所</label>
+  <input type="text" id="place">
+
+  <label>詳細</label>
+  <textarea id="detail"></textarea>
+
+  <label>開始日時<span class="req">必須・15分単位</span></label>
+  <input type="datetime-local" id="start" step="900">
+
+  <label>終了日時<span class="req">必須・15分単位</span></label>
+  <input type="datetime-local" id="end" step="900">
+
+  <label>タグ</label>
+  <select id="tag"></select>
+
+  <label>参加メンバー（複数選択可）</label>
+  <div class="chips" id="members"></div>
+
+  <button id="send">登録する</button>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="wrap" id="notready" style="display:none">
+  <h1>準備中</h1>
+  <p>この機能はまだ準備中です。</p>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  /* ===== ここだけ自分の値に書き替える ===== */
+  var LIFF_ID  = "2010573789-iYqvGWEV";  // 本番用ミニアプリのLIFF ID
+  var GAS_URL  = "ここにGASの /exec URL"; // GASウェブアプリの /exec
+  /* ======================================= */
+
+  var MEMBERS = ["長利","hd","新井","Shin"];
+  var TAGS = ["ライブ","打ち合わせ","挨拶","メディア","仕事","その他"];
+  var profile = { userId:"", displayName:"" };
+  var GID = "";
+
+  function dbg(t){ var d=document.getElementById('dbg'); if(d) d.textContent=t; }
+  function show(t){ document.getElementById('msg').textContent = t; }
+
+  // liff.state / クエリから値を取り出す
+  function getParam(name){
+    var u = new URL(location.href);
+    var v = u.searchParams.get(name);
+    if (v) return v;
+    var st = u.searchParams.get('liff.state');
+    if (st){ var q = (decodeURIComponent(st).split('?')[1] || ''); return new URLSearchParams(q).get(name) || ''; }
+    return '';
+  }
+  function getPage(){
+    var u = new URL(location.href);
+    var st = u.searchParams.get('liff.state');
+    if (st){ var path = decodeURIComponent(st).split('?')[0].replace(/^\/+/, ''); if(path) return path.toLowerCase(); }
+    return (u.searchParams.get('page') || 'calendar').toLowerCase();
+  }
+
+  // 画面の準備
+  var tagSel = document.getElementById('tag');
+  tagSel.innerHTML = '<option value="">（未設定）</option>' + TAGS.map(function(t){return '<option>'+t+'</option>';}).join('');
+  document.getElementById('members').innerHTML = MEMBERS.map(function(m){
+    return '<label><input type="checkbox" value="'+m+'">'+m+'</label>';
+  }).join('');
+
+  liff.init({ liffId: LIFF_ID }).then(function(){
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    return liff.permission.query('profile').then(function(s){
+      if (s.state === 'prompt') return liff.permission.requestAll();
+    }).then(function(){ return liff.getProfile(); });
+  }).then(function(p){
+    if (p) profile = p;
+    GID = getParam('gid');
+    var page = getPage();
+    if (page !== 'calendar') {
+      document.getElementById('notready').style.display = 'block';
+      dbg('page=' + page + '（カレンダー以外は準備中）');
+      return;
+    }
+    document.getElementById('app').style.display = 'block';
+    dbg('✅ 準備OK / name=' + profile.displayName + ' / gid=' + GID);
+  }).catch(function(e){
+    dbg('エラー: ' + (e && e.message ? e.message : e));
+  });
+
+  document.getElementById('send').onclick = function(){
+    var title = document.getElementById('title').value.trim();
+    var start = document.getElementById('start').value;
+    var end   = document.getElementById('end').value;
+    if(!title || !start || !end){ show('タイトル・開始・終了は必須です。'); return; }
+    if(end < start){ show('終了は開始より後にしてください。'); return; }
+    var members = [].slice.call(document.querySelectorAll('#members input:checked')).map(function(c){return c.value;});
+    this.disabled = true; show('登録中…');
+
+    var payload = {
+      action: 'submitCalendar',
+      title: title, place: document.getElementById('place').value.trim(),
+      detail: document.getElementById('detail').value.trim(),
+      start: start, end: end, tag: tagSel.value, members: members,
+      gid: GID, userName: profile.displayName, userId: profile.userId
+    };
+
+    fetch(GAS_URL, { method:'POST', body: JSON.stringify(payload) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if (res && res.ok) { show('登録しました。画面を閉じます。'); setTimeout(closeIt, 1200); }
+        else { show('登録できませんでした: ' + ((res && res.error) || '不明')); document.getElementById('send').disabled = false; }
+      })
+      .catch(function(err){ show('通信エラー: ' + err.message); document.getElementById('send').disabled = false; });
+  };
+  function closeIt(){ if (liff.isInClient()) liff.closeWindow(); }
+</script>
+</body>
+</html>
