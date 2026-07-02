@@ -22,6 +22,17 @@
   .msg{margin-top:14px;text-align:center;font-size:14px}
   .page{display:none}
   .loading{max-width:520px;margin:0 auto;padding:40px 16px;text-align:center;color:#889}
+  /* 予定確認 */
+  .card{background:#fff;border:1px solid #e1e6ea;border-radius:10px;padding:12px;margin-bottom:12px}
+  .card .t{font-weight:600;font-size:15px}
+  .card .meta{font-size:12px;color:#667;margin-top:4px;line-height:1.5}
+  .rowbtns{display:flex;gap:8px;margin-top:10px}
+  .rowbtns button{flex:1;margin-top:0;padding:9px;font-size:14px;border-radius:8px;border:1px solid #cbd2d9;background:#fff;color:#1f2933;font-weight:400}
+  .rowbtns .del{color:#d64545;border-color:#f0b3b3}
+  .edit{margin-top:10px;padding-top:10px;border-top:1px dashed #dde;display:none}
+  .edit label{margin:8px 0 3px}
+  .edit .save{background:#06C755;color:#fff;border:none;font-weight:600}
+  .empty{text-align:center;color:#667;font-size:14px;padding:20px 0}
 </style>
 </head>
 <body>
@@ -46,6 +57,12 @@
   <div class="chips" id="cal_members"></div>
   <button id="cal_send">登録する</button>
   <div class="msg" id="cal_msg"></div>
+</div>
+
+<!-- ===== 予定の確認・変更・削除 ===== -->
+<div class="wrap page" id="page-manage">
+  <h1>予定の確認・変更・削除</h1>
+  <div id="mng_list"><div class="empty">読み込み中…</div></div>
 </div>
 
 <!-- ===== 経費精算 ===== -->
@@ -95,6 +112,7 @@
   var profile = { userId:"", displayName:"" };
   var GID = "";
   var expImage = null;
+  var mngEvents = [];
 
   function showPage(id){
     document.getElementById('loading').style.display = 'none';
@@ -116,14 +134,14 @@
     if (st){ var path=decodeURIComponent(st).split('?')[0].replace(/^\/+/, ''); if(path) return path.toLowerCase(); }
     return (u.searchParams.get('page') || 'calendar').toLowerCase();
   }
+  function esc(s){ return (s||'').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+  function attr(s){ return (s||'').replace(/"/g,'&quot;'); }
 
   // 部品の用意
   var tagSel = document.getElementById('cal_tag');
   tagSel.innerHTML = '<option value="">（未設定）</option>' + TAGS.map(function(t){return '<option>'+t+'</option>';}).join('');
-  // カレンダーの参加メンバー：複数選択（チェックボックス）
   document.getElementById('cal_members').innerHTML =
     MEMBERS.map(function(m){ return '<label><input type="checkbox" value="'+m+'">'+m+'</label>'; }).join('');
-  // 経費の支払いメンバー：1人だけ選択（ラジオボタン）
   document.getElementById('exp_members').innerHTML =
     MEMBERS.map(function(m){ return '<label><input type="radio" name="exp_member" value="'+m+'">'+m+'</label>'; }).join('');
 
@@ -137,6 +155,7 @@
     GID = getParam('gid');
     var page = getPage();
     if (page === 'calendar')      showPage('calendar');
+    else if (page === 'manage')   { showPage('manage'); loadEvents(); }
     else if (page === 'expense')  showPage('expense');
     else if (page === 'request')  showPage('request');
     else                          showPage('notready');
@@ -144,7 +163,7 @@
     fail('読み込みに失敗しました。もう一度開いてください。');
   });
 
-  // 画像を縮小してbase64化（長辺1600px・JPEG 80%）
+  // 画像を縮小してbase64化
   document.getElementById('exp_file').onchange = function(e){
     var f = e.target.files[0]; if(!f) return;
     var reader = new FileReader();
@@ -164,49 +183,97 @@
   };
 
   function post(payload, btn, msgId, okText){
-    btn.disabled = true; setMsg(msgId, '送信中…');
-    fetch(GAS_URL, { method:'POST', body: JSON.stringify(payload) })
+    if (btn) btn.disabled = true; if (msgId) setMsg(msgId, '送信中…');
+    return fetch(GAS_URL, { method:'POST', body: JSON.stringify(payload) })
       .then(function(r){ return r.json(); })
       .then(function(res){
-        if (res && res.ok) { setMsg(msgId, okText); setTimeout(closeIt, 1200); }
-        else { setMsg(msgId, '失敗: ' + ((res && res.error) || '不明')); btn.disabled = false; }
+        if (res && res.ok) { if (msgId) setMsg(msgId, okText); return res; }
+        if (msgId) setMsg(msgId, '失敗: ' + ((res && res.error) || '不明'));
+        if (btn) btn.disabled = false; return res;
       })
-      .catch(function(err){ setMsg(msgId, '通信エラー: ' + err.message); btn.disabled = false; });
+      .catch(function(err){ if (msgId) setMsg(msgId, '通信エラー: ' + err.message); if (btn) btn.disabled=false; throw err; });
   }
   function setMsg(id, t){ document.getElementById(id).textContent = t; }
   function closeIt(){ if (liff.isInClient()) liff.closeWindow(); }
 
-  // カレンダー送信
+  // ===== D 予定の確認・変更・削除 =====
+  function loadEvents(){
+    document.getElementById('mng_list').innerHTML = '<div class="empty">読み込み中…</div>';
+    fetch(GAS_URL, { method:'POST', body: JSON.stringify({ action:'getCalendarEvents', gid:GID }) })
+      .then(function(r){ return r.json(); })
+      .then(function(res){ renderEvents((res && res.events) || []); })
+      .catch(function(){ document.getElementById('mng_list').innerHTML = '<div class="empty">読み込みに失敗しました。</div>'; });
+  }
+  function renderEvents(list){
+    mngEvents = list;
+    if (list.length === 0){ document.getElementById('mng_list').innerHTML = '<div class="empty">登録された予定はありません。</div>'; return; }
+    document.getElementById('mng_list').innerHTML = list.map(function(ev, i){
+      return '<div class="card">'
+        + '<div class="t">' + esc(ev.title) + '</div>'
+        + '<div class="meta">' + fmt(ev.start) + ' 〜 ' + fmt(ev.end) + '<br>'
+        + (ev.place ? ('場所: ' + esc(ev.place) + '<br>') : '')
+        + 'タグ: ' + esc(ev.tag||'-') + ' / 参加: ' + esc(ev.members||'-') + '</div>'
+        + '<div class="rowbtns"><button onclick="mngToggle('+i+')">変更</button>'
+        + '<button class="del" onclick="mngDelete('+i+')">削除</button></div>'
+        + '<div class="edit" id="edit'+i+'">'
+        + '<label>タイトル</label><input id="et'+i+'" value="'+attr(ev.title)+'">'
+        + '<label>開始</label><input type="datetime-local" step="900" id="es'+i+'" value="'+ev.start+'">'
+        + '<label>終了</label><input type="datetime-local" step="900" id="ee'+i+'" value="'+ev.end+'">'
+        + '<label>場所</label><input id="ep'+i+'" value="'+attr(ev.place||'')+'">'
+        + '<button class="save" onclick="mngSave('+i+')">保存する</button>'
+        + '<div class="msg" id="em'+i+'"></div></div>'
+        + '</div>';
+    }).join('');
+  }
+  function mngToggle(i){ var e=document.getElementById('edit'+i); e.style.display = (e.style.display==='block'?'none':'block'); }
+  function mngSave(i){
+    var ev = mngEvents[i];
+    var title=val('et'+i), start=val('es'+i), end=val('ee'+i), place=val('ep'+i);
+    if(!title||!start||!end){ setMsg('em'+i,'タイトル・開始・終了は必須です。'); return; }
+    if(end<start){ setMsg('em'+i,'終了は開始より後にしてください。'); return; }
+    post({ action:'updateCalendarEvent', row:ev.row, calEventId:ev.calEventId, gid:GID,
+      userName:profile.displayName, title:title, start:start, end:end, place:place, detail:ev.detail, tag:ev.tag },
+      null, 'em'+i, '更新しました。').then(function(res){ if(res && res.ok){ setTimeout(loadEvents, 800); } });
+  }
+  function mngDelete(i){
+    var ev = mngEvents[i];
+    if(!confirm('この予定を削除しますか?\n「'+ev.title+'」')) return;
+    post({ action:'deleteCalendarEvent', row:ev.row, calEventId:ev.calEventId, gid:GID,
+      userName:profile.displayName, title:ev.title }, null, null, '')
+      .then(function(res){ if(res && res.ok){ loadEvents(); } });
+  }
+  function val(id){ return document.getElementById(id).value; }
+  function fmt(s){ return (s||'').replace('T',' '); }
+
+  // ===== 送信（カレンダー登録・経費・機能要望）=====
+  function postClose(payload, btn, msgId, okText){
+    post(payload, btn, msgId, okText).then(function(res){ if(res && res.ok){ setTimeout(closeIt, 1200); } });
+  }
   document.getElementById('cal_send').onclick = function(){
     var title=document.getElementById('cal_title').value.trim();
     var start=document.getElementById('cal_start').value, end=document.getElementById('cal_end').value;
     if(!title||!start||!end){ setMsg('cal_msg','タイトル・開始・終了は必須です。'); return; }
     if(end<start){ setMsg('cal_msg','終了は開始より後にしてください。'); return; }
     var members=[].slice.call(document.querySelectorAll('#cal_members input:checked')).map(function(c){return c.value;});
-    post({ action:'submitCalendar', title:title, place:document.getElementById('cal_place').value.trim(),
+    postClose({ action:'submitCalendar', title:title, place:document.getElementById('cal_place').value.trim(),
       detail:document.getElementById('cal_detail').value.trim(), start:start, end:end, tag:tagSel.value,
       members:members, gid:GID, userName:profile.displayName, userId:profile.userId },
       this, 'cal_msg', '登録しました。画面を閉じます。');
   };
-
-  // 経費送信
   document.getElementById('exp_send').onclick = function(){
     var amount=document.getElementById('exp_amount').value;
     if(!amount){ setMsg('exp_msg','金額は必須です。'); return; }
     var picked=document.querySelector('#exp_members input:checked');
-    var members = picked ? [picked.value] : [];
-    post({ action:'submitExpense', amount:amount, payDate:document.getElementById('exp_payDate').value,
+    postClose({ action:'submitExpense', amount:amount, payDate:document.getElementById('exp_payDate').value,
       payee:document.getElementById('exp_payee').value.trim(), content:document.getElementById('exp_content').value.trim(),
-      members:members, gid:GID, userName:profile.displayName, userId:profile.userId,
+      members: picked ? [picked.value] : [], gid:GID, userName:profile.displayName, userId:profile.userId,
       imageBase64:expImage, imageName:'receipt.jpg', imageMime:'image/jpeg' },
       this, 'exp_msg', '申請しました。画面を閉じます。');
   };
-
-  // 機能要望送信
   document.getElementById('req_send').onclick = function(){
     var text=document.getElementById('req_text').value.trim();
     if(!text){ setMsg('req_msg','内容を入力してください。'); return; }
-    post({ action:'submitRequest', text:text, gid:GID, userName:profile.displayName, userId:profile.userId },
+    postClose({ action:'submitRequest', text:text, gid:GID, userName:profile.displayName, userId:profile.userId },
       this, 'req_msg', '送信しました。ありがとうございます。');
   };
 </script>
