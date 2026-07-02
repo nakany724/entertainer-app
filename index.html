@@ -158,7 +158,7 @@
     else if (page === 'manage')   { showPage('manage'); loadEvents(); }
     else if (page === 'expense')  showPage('expense');
     else if (page === 'request')  showPage('request');
-    else                          showPage('notready');
+    else { document.getElementById('page-notready').querySelector('p').textContent = 'page=' + page + ' / gid=' + GID; showPage('notready'); }
   }).catch(function(e){
     fail('読み込みに失敗しました。もう一度開いてください。');
   });
