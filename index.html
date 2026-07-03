@@ -115,6 +115,19 @@
   <div class="msg" id="req_msg"></div>
 </div>
 
+<!-- ===== ライブのリマインド設定 ===== -->
+<div class="wrap page" id="page-remind">
+  <h1>ライブのリマインド設定</h1>
+  <p class="lead" id="rmd_lead"></p>
+  <label>いつ思い出したいですか?（複数選べます）</label>
+  <div class="chips" id="rmd_presets"></div>
+  <label>日付で指定する（任意）</label>
+  <input type="date" id="rmd_custom">
+  <button id="rmd_send">リマインドを設定する</button>
+  <div class="msg" id="rmd_msg"></div>
+  <div id="rmd_list"></div>
+</div>
+
 <!-- ===== 準備中 ===== -->
 <div class="wrap page" id="page-notready">
   <h1>準備中</h1>
@@ -203,6 +216,7 @@
     else if (page === 'manage')   { showPage('manage'); viewY=today.getFullYear(); viewM=today.getMonth(); loadEvents(); }
     else if (page === 'expense')  showPage('expense');
     else if (page === 'request')  showPage('request');
+    else if (page === 'remind')   { showPage('remind'); initRemind(); }
     else                          showPage('notready');
   }).catch(function(e){ fail('読み込みに失敗しました。もう一度開いてください。'); });
 
@@ -337,6 +351,73 @@
     var text=val('req_text').trim(); if(!text){ setMsg('req_msg','内容を入力してください。'); return; }
     postClose({action:'submitRequest',text:text,gid:GID,userName:profile.displayName,userId:profile.userId},
       this,'req_msg','送信しました。ありがとうございます。');
+  };
+
+  // ===== ライブのリマインド設定 =====
+  var LIVE_DATE = "2027-06-20";
+  var LIVE_TITLE = "大ワンマンライブ";
+  var PRESETS = [30,14,7,3,1]; // 〇日前
+  function minusDays(dateStr,n){
+    var p=dateStr.split('-'); var d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
+    d.setUTCDate(d.getUTCDate()-n);
+    return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate());
+  }
+  function todayStrLocal(){ var d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+
+  function initRemind(){
+    document.getElementById('rmd_lead').textContent =
+      LIVE_TITLE + '（' + LIVE_DATE + '）のチケット、忘れないように思い出す日を設定できます。';
+    var tdy = todayStrLocal();
+    // 〇日前の候補（過去になるものは除外）
+    var html = PRESETS.map(function(n){
+      var d = minusDays(LIVE_DATE, n);
+      if (d < tdy) return '';
+      return '<label><input type="checkbox" class="rmd_p" value="'+d+'">'+n+'日前 ('+d+')</label>';
+    }).join('');
+    document.getElementById('rmd_presets').innerHTML = html || '<span style="font-size:13px;color:#889">選べる候補がありません</span>';
+    // 日付指定の範囲
+    var c = document.getElementById('rmd_custom'); c.min = tdy; c.max = LIVE_DATE;
+    loadRemindList();
+  }
+
+  function loadRemindList(){
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getReminds',userId:profile.userId})})
+      .then(function(r){return r.json();})
+      .then(function(res){
+        var list=(res&&res.reminds)||[];
+        if(list.length===0){ document.getElementById('rmd_list').innerHTML=''; return; }
+        document.getElementById('rmd_list').innerHTML =
+          '<h2 style="font-size:15px;margin-top:20px">設定済みのリマインド</h2>' +
+          list.map(function(x){
+            return '<div class="card"><div class="t">'+x.date+'</div>'
+              + '<div class="rowbtns"><button class="del" onclick="delRemind('+x.row+')">取消</button></div></div>';
+          }).join('');
+      })
+      .catch(function(){});
+  }
+  window.delRemind = function(row){
+    if(!confirm('このリマインドを取り消しますか?')) return;
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteRemind',row:row})})
+      .then(function(r){return r.json();}).then(function(){ loadRemindList(); });
+  };
+
+  document.getElementById('rmd_send').onclick=function(){
+    var dates=[].slice.call(document.querySelectorAll('.rmd_p:checked')).map(function(c){return c.value;});
+    var custom=val('rmd_custom'); if(custom) dates.push(custom);
+    if(dates.length===0){ setMsg('rmd_msg','思い出したい日を1つ以上選んでください。'); return; }
+    var btn=this; btn.disabled=true; setMsg('rmd_msg','設定中…');
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'submitRemind',dates:dates,userName:profile.displayName,userId:profile.userId})})
+      .then(function(r){return r.json();})
+      .then(function(res){
+        if(res&&res.ok){
+          setMsg('rmd_msg', res.added+'件のリマインドを設定しました。');
+          // 選択をリセットして一覧更新
+          [].slice.call(document.querySelectorAll('.rmd_p:checked')).forEach(function(c){c.checked=false;});
+          document.getElementById('rmd_custom').value='';
+          btn.disabled=false; loadRemindList();
+        } else { setMsg('rmd_msg','失敗: '+((res&&res.error)||'不明')); btn.disabled=false; }
+      })
+      .catch(function(err){ setMsg('rmd_msg','通信エラー: '+err.message); btn.disabled=false; });
   };
 </script>
 </body>
