@@ -61,6 +61,23 @@
   .result .lose{color:#889}
   .result .box{background:#fff;border:1px solid #e1e6ea;border-radius:12px;padding:18px;margin-top:12px}
   .result .tk{font-size:22px;font-weight:700;letter-spacing:2px;margin-top:6px}
+  /* リッチ当たり画面 */
+  #confetti{position:fixed;inset:0;pointer-events:none;z-index:60;display:none}
+  .win-wrap{text-align:center;padding:10px 6px}
+  .win-badge{font-size:15px;color:#c98a00;font-weight:700;letter-spacing:3px;animation:drop .5s ease}
+  .win-title{font-size:40px;font-weight:800;margin:6px 0 4px;background:linear-gradient(90deg,#ff8a00,#ff3d77,#8a2be2);-webkit-background-clip:text;background-clip:text;color:transparent;animation:pop .6s cubic-bezier(.2,1.4,.4,1)}
+  .prize-card{margin:16px auto 0;max-width:340px;border-radius:18px;padding:24px 18px;color:#fff;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,#7b2ff7,#f107a3);box-shadow:0 12px 30px rgba(241,7,163,.35);animation:pop .7s .1s both}
+  .prize-card .plabel{font-size:12px;opacity:.85;letter-spacing:2px}
+  .prize-card .pname{font-size:26px;font-weight:800;margin-top:6px;line-height:1.3}
+  .prize-card .shine{position:absolute;top:-60%;left:-30%;width:60%;height:220%;background:rgba(255,255,255,.25);transform:rotate(25deg);animation:shine 2.2s ease-in-out infinite}
+  @keyframes shine{0%{left:-40%}60%,100%{left:130%}}
+  @keyframes pop{0%{transform:scale(.5);opacity:0}100%{transform:scale(1);opacity:1}}
+  @keyframes drop{0%{transform:translateY(-12px);opacity:0}100%{transform:translateY(0);opacity:1}}
+  .lose-wrap{text-align:center;padding:30px 6px}
+  .lose-emoji{font-size:44px}
+  .lose-title{font-size:24px;font-weight:700;color:#66707a;margin:8px 0}
+  .after-btn{background:#fff;color:#f107a3;border:2px solid #f107a3;font-weight:700}
 </style>
 </head>
 <body>
@@ -145,7 +162,7 @@
 <div class="wrap page" id="page-lottery">
   <div id="lot_form">
     <h1>ライブ当日くじ</h1>
-    <p class="lead">事前に入力しておけます。くじは当日16時から引けます。</p>
+    <p class="lead" id="lot_lead">事前に入力しておけます。くじは当日16時から引けます。</p>
     <label>お名前（ニックネーム可）<span class="req">必須</span></label>
     <input type="text" id="lot_name">
     <label>整理番号<span class="req">必須</span></label>
@@ -168,6 +185,7 @@
   <div class="spinner"></div>
   <div class="txt">抽選中…</div>
 </div>
+<canvas id="confetti"></canvas>
 
 <!-- ===== 準備中 ===== -->
 <div class="wrap page" id="page-notready">
@@ -447,6 +465,7 @@
   var PREFS = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
   var MIYAGI = ["仙台市青葉区","仙台市宮城野区","仙台市若林区","仙台市太白区","仙台市泉区","石巻市","塩竈市","気仙沼市","白石市","名取市","角田市","多賀城市","岩沼市","登米市","栗原市","東松島市","大崎市","富谷市","蔵王町","七ヶ宿町","大河原町","村田町","柴田町","川崎町","丸森町","亘理町","山元町","松島町","七ヶ浜町","利府町","大和町","大郷町","大衡村","色麻町","加美町","涌谷町","美里町","女川町","南三陸町"];
   var lotImage = null;
+  var lotOpen = true;
 
   function initLottery(){
     var pref=document.getElementById('lot_pref');
@@ -454,7 +473,19 @@
     var city=document.getElementById('lot_city');
     city.innerHTML='<option value="">選択してください</option>'+MIYAGI.map(function(c){return '<option>'+c+'</option>';}).join('');
     pref.onchange=function(){ document.getElementById('lot_city_wrap').style.display = (pref.value==='宮城県')?'block':'none'; };
+    // 開放状態を取得してボタンを出し分け
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'lotteryStatus'})})
+      .then(function(r){return r.json();})
+      .then(function(res){
+        lotOpen = !!(res && res.open);
+        var btn=document.getElementById('lot_send');
+        var lead=document.getElementById('lot_lead');
+        if(lotOpen){ btn.textContent='くじを引く'; lead.textContent='必要事項を入力して、くじを引いてください。'; }
+        else { btn.textContent='事前登録する'; lead.textContent='いまは事前登録ができます。くじは当日16時から引けます。'; }
+      })
+      .catch(function(){});
   }
+
   document.getElementById('lot_file').onchange=function(e){
     var f=e.target.files[0]; if(!f) return;
     var reader=new FileReader();
@@ -474,55 +505,94 @@
   };
 
   document.getElementById('lot_send').onclick=function(){
-    var name=val('lot_name').trim(), ticket=val('lot_ticket').trim(), pref=val('lot_pref');
-    var city=val('lot_city');
+    var name=val('lot_name').trim(), ticket=val('lot_ticket').trim(), pref=val('lot_pref'), city=val('lot_city');
     if(!name||!ticket){ setMsg('lot_msg','お名前と整理番号は必須です。'); return; }
     if(!lotImage){ setMsg('lot_msg','整理番号が見える写真を選んでください。'); return; }
     if(!pref){ setMsg('lot_msg','都道府県を選んでください。'); return; }
     if(pref==='宮城県' && !city){ setMsg('lot_msg','市区町村を選んでください。'); return; }
-    this.disabled=true; setMsg('lot_msg','');
-    document.getElementById('lot_overlay').classList.add('on'); // 演出開始
+    var btn=this; btn.disabled=true; setMsg('lot_msg','送信中…');
 
-    var started=Date.now();
-    // 写真保存 → 抽選 を演出中に並行実行
+    // 写真保存 → （開放中なら抽選／開放前なら登録のみ）
     fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'saveLotteryPhoto',ticket:ticket,imageBase64:lotImage,imageMime:'image/jpeg'})})
       .then(function(r){return r.json();})
       .then(function(res){
         var photoUrl=(res&&res.url)||'';
-        return fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'drawLottery',ticket:ticket,name:name,pref:pref,city:city,photoUrl:photoUrl,userId:profile.userId})});
-      })
-      .then(function(r){return r.json();})
-      .then(function(res){
-        var wait=Math.max(0, 2800-(Date.now()-started)); // 最低2.8秒は演出を見せる
-        setTimeout(function(){ document.getElementById('lot_overlay').classList.remove('on'); showResult(res); }, wait);
+        var base={ticket:ticket,name:name,pref:pref,city:city,photoUrl:photoUrl,userId:profile.userId};
+        if(!lotOpen){
+          return fetch(GAS_URL,{method:'POST',body:JSON.stringify(Object.assign({action:'registerLottery'},base))})
+            .then(function(r){return r.json();})
+            .then(function(rr){
+              if(rr&&rr.ok){ setMsg('lot_msg','事前登録しました。くじは当日16時から引けます。'); }
+              else { setMsg('lot_msg','登録に失敗しました: '+((rr&&rr.error)||'不明')); btn.disabled=false; }
+            });
+        }
+        // 開放中：演出→抽選→結果
+        document.getElementById('lot_overlay').classList.add('on');
+        var started=Date.now();
+        return fetch(GAS_URL,{method:'POST',body:JSON.stringify(Object.assign({action:'drawLottery'},base))})
+          .then(function(r){return r.json();})
+          .then(function(rr){
+            var wait=Math.max(0, 2800-(Date.now()-started));
+            setTimeout(function(){ document.getElementById('lot_overlay').classList.remove('on'); showResult(rr,ticket); }, wait);
+          });
       })
       .catch(function(err){
         document.getElementById('lot_overlay').classList.remove('on');
-        setMsg('lot_msg','通信エラー: '+err.message); document.getElementById('lot_send').disabled=false;
+        setMsg('lot_msg','通信エラー: '+err.message); btn.disabled=false;
       });
   };
 
-  function showResult(res){
-    if(!res || (!res.ok && res.code!=='not_open')){ setMsg('lot_msg','エラー: '+((res&&res.error)||'不明')); document.getElementById('lot_send').disabled=false; return; }
-    if(res.ok===false && res.code==='not_open'){ setMsg('lot_msg', res.error); document.getElementById('lot_send').disabled=false; return; }
+  function showResult(res, ticket){
+    if(!res || res.ok===false){ setMsg('lot_msg','エラー: '+((res&&res.error)||'不明')); document.getElementById('lot_send').disabled=false; return; }
     document.getElementById('lot_form').style.display='none';
     var el=document.getElementById('lot_result'); el.style.display='block';
-    var ticket=val('lot_ticket').trim();
-    var html='';
-    var pre = res.already ? '<p class="lead" style="text-align:center">※この整理番号はすでに引いています</p>' : '';
+    var pre = res.already ? '<p class="lead" style="text-align:center;color:#889">※この整理番号はすでに引いています</p>' : '';
+
     if(res.type==='none'){
-      html = pre+'<div class="result"><div class="big lose">はずれ</div><p>また次の機会に！</p></div>';
-    } else if(res.type==='onsite'){
-      html = pre+'<div class="result"><div class="big win">当たり！</div>'
-        +'<div class="box"><div>'+esc(res.resultName)+'</div><div class="tk">整理番号 '+esc(ticket)+'</div>'
-        +'<p style="font-size:13px;color:#667;margin-top:8px">この画面をスタッフにお見せください</p></div></div>';
-    } else { // ship
-      html = pre+'<div class="result"><div class="big win">当たり！</div>'
-        +'<div class="box"><div>'+esc(res.resultName)+'</div>'
-        +'<p style="font-size:13px;color:#667;margin-top:8px">後日配送のため、応募フォームへお進みください</p>'
-        +'<button onclick="alert(\'（DEMO）応募フォームへ\')">応募フォームへ</button></div></div>';
+      el.innerHTML = pre + '<div class="lose-wrap"><div class="lose-emoji">🍀</div>'
+        + '<div class="lose-title">はずれ</div><p>また次の機会に！</p></div>';
+      return;
     }
-    el.innerHTML=html;
+    // 当たり（リッチ）
+    var extra='';
+    if(res.type==='onsite'){
+      extra = '<div class="prize-card" style="background:linear-gradient(135deg,#11998e,#38ef7d);box-shadow:0 12px 30px rgba(17,153,142,.35)">'
+        + '<div class="shine"></div><div class="plabel">その場で引き換え</div><div class="pname">'+esc(res.resultName)+'</div>'
+        + '<div style="margin-top:12px;font-size:13px;opacity:.9">整理番号</div><div style="font-size:26px;font-weight:800;letter-spacing:2px">'+esc(ticket)+'</div></div>'
+        + '<p style="text-align:center;font-size:13px;color:#667;margin-top:12px">この画面をスタッフにお見せください</p>';
+    } else {
+      extra = '<div class="prize-card"><div class="shine"></div><div class="plabel">当選賞品</div><div class="pname">'+esc(res.resultName)+'</div></div>'
+        + '<div style="text-align:center;margin-top:16px"><button class="after-btn" onclick="alert(\'（DEMO）応募フォームへ\')">応募フォームへ</button>'
+        + '<p style="font-size:13px;color:#667;margin-top:8px">後日配送のため、応募フォームからお進みください</p></div>';
+    }
+    el.innerHTML = pre + '<div class="win-wrap"><div class="win-badge">★ CONGRATULATIONS ★</div>'
+      + '<div class="win-title">当たり！</div></div>' + extra;
+    burstConfetti();
+  }
+
+  // 紙吹雪
+  function burstConfetti(){
+    var cv=document.getElementById('confetti'); cv.style.display='block';
+    cv.width=window.innerWidth; cv.height=window.innerHeight;
+    var ctx=cv.getContext('2d');
+    var colors=['#ff3d77','#ff8a00','#ffd200','#38ef7d','#7b2ff7','#00c6ff'];
+    var parts=[];
+    for(var i=0;i<160;i++){
+      parts.push({x:Math.random()*cv.width, y:-20-Math.random()*cv.height*0.5,
+        w:6+Math.random()*6, h:8+Math.random()*8, c:colors[i%colors.length],
+        vy:2+Math.random()*3, vx:-1.5+Math.random()*3, rot:Math.random()*6, vr:-0.2+Math.random()*0.4});
+    }
+    var t0=Date.now();
+    (function frame(){
+      ctx.clearRect(0,0,cv.width,cv.height);
+      parts.forEach(function(p){
+        p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr;
+        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillStyle=p.c;
+        ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
+      });
+      if(Date.now()-t0<4500){ requestAnimationFrame(frame); }
+      else { ctx.clearRect(0,0,cv.width,cv.height); cv.style.display='none'; }
+    })();
   }
 
   document.getElementById('rmd_send').onclick=function(){
