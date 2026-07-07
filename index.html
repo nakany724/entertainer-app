@@ -510,31 +510,39 @@
     if(!lotImage){ setMsg('lot_msg','整理番号が見える写真を選んでください。'); return; }
     if(!pref){ setMsg('lot_msg','都道府県を選んでください。'); return; }
     if(pref==='宮城県' && !city){ setMsg('lot_msg','市区町村を選んでください。'); return; }
-    var btn=this; btn.disabled=true; setMsg('lot_msg','送信中…');
+    var btn=this; btn.disabled=true; setMsg('lot_msg','確認中…');
+    var base={ticket:ticket,name:name,pref:pref,city:city,userId:profile.userId};
 
-    // 写真保存 → （開放中なら抽選／開放前なら登録のみ）
-    fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'saveLotteryPhoto',ticket:ticket,imageBase64:lotImage,imageMime:'image/jpeg'})})
+    // 事前登録（開放前）
+    if(!lotOpen){
+      setMsg('lot_msg','送信中…');
+      savePhoto(ticket).then(function(photoUrl){
+        base.photoUrl=photoUrl;
+        return fetch(GAS_URL,{method:'POST',body:JSON.stringify(Object.assign({action:'registerLottery'},base))}).then(function(r){return r.json();});
+      }).then(function(rr){
+        if(rr&&rr.ok){ setMsg('lot_msg','事前登録しました。くじは当日16時から引けます。'); }
+        else { setMsg('lot_msg','登録に失敗しました: '+((rr&&rr.error)||'不明')); btn.disabled=false; }
+      }).catch(function(err){ setMsg('lot_msg','通信エラー: '+err.message); btn.disabled=false; });
+      return;
+    }
+
+    // 開放中：まず抽選済みか確認 → 済みなら結果表示（演出なし）／未抽選なら演出→抽選
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'lotteryStatus',ticket:ticket})})
       .then(function(r){return r.json();})
-      .then(function(res){
-        var photoUrl=(res&&res.url)||'';
-        var base={ticket:ticket,name:name,pref:pref,city:city,photoUrl:photoUrl,userId:profile.userId};
-        if(!lotOpen){
-          return fetch(GAS_URL,{method:'POST',body:JSON.stringify(Object.assign({action:'registerLottery'},base))})
+      .then(function(st){
+        if(st && st.drawn){ showAlready(st.drawn, ticket); return; }
+        setMsg('lot_msg','送信中…');
+        return savePhoto(ticket).then(function(photoUrl){
+          base.photoUrl=photoUrl;
+          document.getElementById('lot_overlay').classList.add('on');
+          var started=Date.now();
+          return fetch(GAS_URL,{method:'POST',body:JSON.stringify(Object.assign({action:'drawLottery'},base))})
             .then(function(r){return r.json();})
             .then(function(rr){
-              if(rr&&rr.ok){ setMsg('lot_msg','事前登録しました。くじは当日16時から引けます。'); }
-              else { setMsg('lot_msg','登録に失敗しました: '+((rr&&rr.error)||'不明')); btn.disabled=false; }
+              var wait=Math.max(0, 2800-(Date.now()-started));
+              setTimeout(function(){ document.getElementById('lot_overlay').classList.remove('on'); showResult(rr,ticket); }, wait);
             });
-        }
-        // 開放中：演出→抽選→結果
-        document.getElementById('lot_overlay').classList.add('on');
-        var started=Date.now();
-        return fetch(GAS_URL,{method:'POST',body:JSON.stringify(Object.assign({action:'drawLottery'},base))})
-          .then(function(r){return r.json();})
-          .then(function(rr){
-            var wait=Math.max(0, 2800-(Date.now()-started));
-            setTimeout(function(){ document.getElementById('lot_overlay').classList.remove('on'); showResult(rr,ticket); }, wait);
-          });
+        });
       })
       .catch(function(err){
         document.getElementById('lot_overlay').classList.remove('on');
@@ -542,18 +550,35 @@
       });
   };
 
+  function savePhoto(ticket){
+    return fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'saveLotteryPhoto',ticket:ticket,imageBase64:lotImage,imageMime:'image/jpeg'})})
+      .then(function(r){return r.json();}).then(function(res){ return (res&&res.url)||''; });
+  }
+
+  // すでに抽選済みのときの画面（演出なし・前回結果を表示）
+  function showAlready(drawn, ticket){
+    document.getElementById('lot_form').style.display='none';
+    var el=document.getElementById('lot_result'); el.style.display='block';
+    var head = '<div style="text-align:center;background:#fff;border:1px solid #e1e6ea;border-radius:12px;padding:14px;margin-bottom:14px">'
+      + '<div style="font-weight:700">この整理番号はすでに抽選済みです</div>'
+      + (drawn.at?('<div style="font-size:12px;color:#889;margin-top:4px">抽選日時: '+esc(drawn.at)+'</div>'):'')
+      + '</div>';
+    el.innerHTML = head + resultHtml(drawn, ticket, true);
+  }
+
   function showResult(res, ticket){
     if(!res || res.ok===false){ setMsg('lot_msg','エラー: '+((res&&res.error)||'不明')); document.getElementById('lot_send').disabled=false; return; }
     document.getElementById('lot_form').style.display='none';
     var el=document.getElementById('lot_result'); el.style.display='block';
-    var pre = res.already ? '<p class="lead" style="text-align:center;color:#889">※この整理番号はすでに引いています</p>' : '';
+    el.innerHTML = resultHtml(res, ticket, res.already);
+    if(res.type!=='none' && !res.already) burstConfetti();  // 新規当選のときだけ紙吹雪
+  }
 
+  // 結果のHTMLを組み立て（当たり/はずれ共通）
+  function resultHtml(res, ticket, quiet){
     if(res.type==='none'){
-      el.innerHTML = pre + '<div class="lose-wrap"><div class="lose-emoji">🍀</div>'
-        + '<div class="lose-title">はずれ</div><p>また次の機会に！</p></div>';
-      return;
+      return '<div class="lose-wrap"><div class="lose-emoji">🍀</div><div class="lose-title">はずれ</div><p>また次の機会に！</p></div>';
     }
-    // 当たり（リッチ）
     var extra='';
     if(res.type==='onsite'){
       extra = '<div class="prize-card" style="background:linear-gradient(135deg,#11998e,#38ef7d);box-shadow:0 12px 30px rgba(17,153,142,.35)">'
@@ -565,11 +590,11 @@
         + '<div style="text-align:center;margin-top:16px"><button class="after-btn" onclick="alert(\'（DEMO）応募フォームへ\')">応募フォームへ</button>'
         + '<p style="font-size:13px;color:#667;margin-top:8px">後日配送のため、応募フォームからお進みください</p></div>';
     }
-    el.innerHTML = pre + '<div class="win-wrap"><div class="win-badge">★ CONGRATULATIONS ★</div>'
-      + '<div class="win-title">当たり！</div></div>' + extra;
-    burstConfetti();
+    var title = quiet
+      ? '<div class="win-wrap"><div class="win-title" style="font-size:30px">当選済み</div></div>'
+      : '<div class="win-wrap"><div class="win-badge">★ CONGRATULATIONS ★</div><div class="win-title">当たり！</div></div>';
+    return title + extra;
   }
-
   // 紙吹雪
   function burstConfetti(){
     var cv=document.getElementById('confetti'); cv.style.display='block';
