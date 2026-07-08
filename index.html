@@ -187,6 +187,18 @@
 </div>
 <canvas id="confetti"></canvas>
 
+<!-- ===== ライブの感想 ===== -->
+<div class="wrap page" id="page-voice">
+  <h1>ライブの感想</h1>
+  <p class="lead">いただいた感想は、確認のうえ宣伝ページに掲載させていただくことがあります。</p>
+  <label>お名前（ニックネーム可）<span class="req">必須</span></label>
+  <input type="text" id="vo_name" maxlength="20">
+  <label>感想<span class="req">必須・60文字まで</span></label>
+  <textarea id="vo_text" maxlength="60" placeholder="今日の感想をどうぞ"></textarea>
+  <button id="vo_send">送信する</button>
+  <div class="msg" id="vo_msg"></div>
+</div>
+
 <!-- ===== 準備中 ===== -->
 <div class="wrap page" id="page-notready">
   <h1>準備中</h1>
@@ -277,6 +289,7 @@
     else if (page === 'request')  showPage('request');
     else if (page === 'remind')   { showPage('remind'); initRemind(); }
     else if (page === 'lottery')  { showPage('lottery'); initLottery(); }
+    else if (page === 'voice')    showPage('voice');
     else                          showPage('notready');
   }).catch(function(e){ fail('読み込みに失敗しました。もう一度開いてください。'); });
 
@@ -411,6 +424,14 @@
     var text=val('req_text').trim(); if(!text){ setMsg('req_msg','内容を入力してください。'); return; }
     postClose({action:'submitRequest',text:text,gid:GID,userName:profile.displayName,userId:profile.userId},
       this,'req_msg','送信しました。ありがとうございます。');
+  };
+
+  // 感想投稿
+  document.getElementById('vo_send').onclick=function(){
+    var name=val('vo_name').trim(), text=val('vo_text').trim();
+    if(!name||!text){ setMsg('vo_msg','お名前と感想を入力してください。'); return; }
+    postClose({action:'submitVoice',name:name,text:text,userId:profile.userId},
+      this,'vo_msg','送信しました。ありがとうございます！');
   };
 
   // ===== ライブのリマインド設定 =====
